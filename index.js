@@ -41,40 +41,19 @@ const client = new Client({
 });
 
 // === PENDU ===
-// Listes de mots par difficulté
-const motsFaciles = [
-  "chat", "chien", "maison", "pomme", "livre", "soleil", "arbre", "fleur", "eau", "porte",
-  "banc", "pain", "vin", "pain", "clé", "nez", "main"
-];
-const motsMoyens = [
-  "ordinateur", "fenetre", "bouteille", "chocolat", "avion", "montagne", "etoile", "cactus", "biscuit", "camion",
-  "papillon", "voiture", "piscine", "horizon", "salade", "chanson"
-];
-const motsDifficiles = [
-  "psychologie", "phenomene", "extraordinaire", "architecture", "programmation", "caracteristique",
-  "transformation", "independance", "astronaute", "democratie", "ornithorynque", "chlorophylle"
+// Mots mélangeant facile, moyen, difficile
+const mots = [
+  "chat", "chien", "fleur", "soleil", "arbre", "pomme", "ballon", "maison", "livre", "bouteille",
+  "montagne", "ordinateur", "avion", "vélo", "plante", "fenêtre", "étoile", "jardin", "piscine", "fromage",
+  "hippopotame", "xylophone", "quinoa", "zyzanie", "météorologie", "philanthrope", "orchidée", "bouquiniste", "citrouille", "parapluie"
 ];
 
-// Fonction pour choisir un mot selon la difficulté (par défaut moyen)
-function choisirMot(difficulte = "moyen") {
-  if (difficulte === "facile") {
-    return motsFaciles[Math.floor(Math.random() * motsFaciles.length)];
-  } else if (difficulte === "difficile") {
-    return motsDifficiles[Math.floor(Math.random() * motsDifficiles.length)];
-  } else {
-    return motsMoyens[Math.floor(Math.random() * motsMoyens.length)];
-  }
-}
-
-// Map pour stocker les parties par salon
 const parties = new Map();
 
-// Formater le mot avec lettres trouvées
 function formatMot(mot, lettresTrouvees) {
   return mot.split("").map(l => (lettresTrouvees.includes(l) ? l : "_")).join(" ");
 }
 
-// Dessiner le pendu selon le nombre d'erreurs
 function dessinerPendu(erreurs) {
   const etapes = [
     "```\n+---+\n|   |\n    |\n    |\n    |\n    |\n=========\n```",
@@ -112,7 +91,7 @@ client.once("ready", async () => {
   }
 });
 
-// === RÉACTIONS AUTOMATIQUES & JEU PENDU ===
+// === RÉACTIONS AUTOMATIQUES ===
 client.on("messageCreate", async (message) => {
   if (message.channel.id === CHANNEL_ID && !message.author.bot) {
     try {
@@ -123,41 +102,29 @@ client.on("messageCreate", async (message) => {
     }
   }
 
-  // JEU DU PENDU
-  if (!message.guild) return; // Ignore messages privés
-  if (message.channel.id !== CHANNEL_ID) return; // Limite au channel spécifié
-  if (message.author.bot) return;
-
+  // === JEU DU PENDU ===
   const partie = parties.get(message.channel.id);
 
-  // Démarrer une partie avec "!pendu [facile|moyen|difficile]"
-  if (message.content.toLowerCase().startsWith("!pendu")) {
+  // Lancer une partie avec !pendu
+  if (message.content === "!pendu") {
     if (partie) {
       message.reply("⚠️ Une partie est déjà en cours dans ce salon !");
       return;
     }
 
-    const args = message.content.split(" ");
-    let difficulte = "moyen";
-    if (args[1] && ["facile", "moyen", "difficile"].includes(args[1].toLowerCase())) {
-      difficulte = args[1].toLowerCase();
-    }
-
-    const mot = choisirMot(difficulte);
+    const mot = mots[Math.floor(Math.random() * mots.length)];
     const lettresTrouvees = [];
     const lettresProposees = [];
     const erreurs = 0;
 
-    parties.set(message.channel.id, { mot, lettresTrouvees, lettresProposees, erreurs, difficulte });
+    parties.set(message.channel.id, { mot, lettresTrouvees, lettresProposees, erreurs });
 
-    await message.channel.send(`🎮 Jeu du pendu lancé ! Niveau : **${difficulte}**\nMot : \`${formatMot(mot, lettresTrouvees)}\`\n${dessinerPendu(erreurs)}\nProposez une lettre !`);
+    await message.channel.send(`🎮 Jeu du pendu lancé !\nMot : \`${formatMot(mot, lettresTrouvees)}\`\n${dessinerPendu(erreurs)}\nProposez une lettre !`);
     return;
   }
 
-  // Traitement des lettres proposées pendant une partie
-  if (partie && message.content.length === 1 && /^[a-zA-Z]$/.test(message.content)) {
+  if (partie && !message.author.bot && message.content.length === 1 && /^[a-zA-Z]$/.test(message.content)) {
     const lettre = message.content.toLowerCase();
-
     if (partie.lettresProposees.includes(lettre)) {
       message.reply("⚠️ Lettre déjà proposée !");
       return;
@@ -176,7 +143,7 @@ client.on("messageCreate", async (message) => {
         await message.channel.send(`✅ Bonne lettre !\nMot : \`${motFormate}\`\n${dessinerPendu(partie.erreurs)}`);
       }
     } else {
-      partie.erreurs++;
+      partie.erreurs += 1;
       if (partie.erreurs >= 6) {
         await message.channel.send(`💀 Partie terminée ! Le mot était **${partie.mot}**\n${dessinerPendu(partie.erreurs)}`);
         parties.delete(message.channel.id);
