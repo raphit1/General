@@ -120,6 +120,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   }
 });
+
 // Remplace ces valeurs par les bons IDs
 const ROLE_NON_VERIFIE_ID = "ID_ROLE_NON_VERIFIE";  // rôle donné à l'arrivée
 const ROLE_MEMBRE_ID = "ID_ROLE_MEMBRE";            // rôle à donner après validation
@@ -146,7 +147,6 @@ client.on("messageReactionAdd", async (reaction, user) => {
     console.error("Erreur lors de la gestion de la réaction :", error);
   }
 });
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, Events, EmbedBuilder } = require('discord.js');
 
 const GAME_CHANNEL_ID = '1378737038261620806';
 
@@ -177,9 +177,9 @@ function generateBoard(board) {
 // Fonction pour vérifier victoire ou nul
 function checkWin(board) {
   const winPatterns = [
-    [0,1,2],[3,4,5],[6,7,8], // lignes
-    [0,3,6],[1,4,7],[2,5,8], // colonnes
-    [0,4,8],[2,4,6]          // diagonales
+    [0,1,2],[3,4,5],[6,7,8],
+    [0,3,6],[1,4,7],[2,5,8],
+    [0,4,8],[2,4,6]
   ];
   for (const pattern of winPatterns) {
     const [a,b,c] = pattern;
@@ -189,10 +189,8 @@ function checkWin(board) {
   return null;
 }
 
-// Au lancement, envoie message de départ
+// Démarrage de jeu
 client.once('ready', async () => {
-  console.log(`🤖 Connecté en tant que ${client.user.tag}`);
-
   const gameChannel = await client.channels.fetch(GAME_CHANNEL_ID);
   if (gameChannel) {
     const button = new ActionRowBuilder().addComponents(
@@ -211,18 +209,15 @@ client.once('ready', async () => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.isButton()) {
-    // Démarrage de partie
     if (interaction.customId === 'start_tictactoe') {
-      // Evite plusieurs parties sur le même message
       if ([...games.values()].some(g => g.status === 'playing')) {
         await interaction.reply({ content: "Une partie est déjà en cours, attends qu'elle se termine.", ephemeral: true });
         return;
       }
 
-      // Init partie
       const board = Array(9).fill(null);
       const playerX = interaction.user.id;
-      // On attend le joueur O
+
       const msg = await interaction.reply({
         content: `<@${playerX}> a commencé une partie de 3O ou 3X ! En attente d'un adversaire pour jouer avec 🟢`,
         components: generateBoard(board),
@@ -234,14 +229,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         board,
         playerX,
         playerO: null,
-        turn: 'X', // X commence
+        turn: 'X',
         message: msg,
         status: 'waiting',
       });
       return;
     }
 
-    // Si interaction sur un bouton de plateau de jeu
     if (interaction.customId.startsWith('ttt_')) {
       const msgId = interaction.message.id;
       const game = games.get(msgId);
@@ -251,13 +245,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       const userId = interaction.user.id;
-      // Si on est en attente d'adversaire
       if (game.status === 'waiting') {
         if (userId === game.playerX) {
-          await interaction.reply({ content: "Tu ne peux pas jouer tout seul 😅 Attends quelqu'un d'autre.", ephemeral: true });
+          await interaction.reply({ content: "Tu ne peux pas jouer tout seul 😅", ephemeral: true });
           return;
         }
-        // On accepte le joueur O
         game.playerO = userId;
         game.status = 'playing';
         await interaction.update({
@@ -267,34 +259,27 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
-      // Partie en cours : check si joueur valide
       if (userId !== game.playerX && userId !== game.playerO) {
         await interaction.reply({ content: "Tu ne joues pas dans cette partie.", ephemeral: true });
         return;
       }
 
-      // Vérifier si c'est le tour du joueur
       const currentPlayerId = game.turn === 'X' ? game.playerX : game.playerO;
       if (userId !== currentPlayerId) {
         await interaction.reply({ content: "Ce n'est pas ton tour.", ephemeral: true });
         return;
       }
 
-      // Récupérer la case choisie
       const index = parseInt(interaction.customId.split('_')[1]);
       if (game.board[index]) {
         await interaction.reply({ content: "Cette case est déjà prise.", ephemeral: true });
         return;
       }
 
-      // Met à jour le plateau
       game.board[index] = game.turn;
-
-      // Vérifie victoire ou nul
       const result = checkWin(game.board);
 
       if (result === 'X' || result === 'O') {
-        // Fin de partie victoire
         const winnerId = result === 'X' ? game.playerX : game.playerO;
         const embed = new EmbedBuilder()
           .setTitle('🎉 Partie terminée !')
@@ -311,7 +296,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       if (result === 'tie') {
-        // Fin de partie nul
         const embed = new EmbedBuilder()
           .setTitle('🤝 Match nul !')
           .setDescription(`La partie s'est terminée sans vainqueur.`)
@@ -326,10 +310,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
-      // Change de tour
       game.turn = game.turn === 'X' ? 'O' : 'X';
 
-      // Mise à jour message
       await interaction.update({
         content: `<@${game.playerX}> (X) VS <@${game.playerO}> (O) - Au tour de <@${game.turn === 'X' ? game.playerX : game.playerO}> (${game.turn})`,
         components: generateBoard(game.board),
@@ -337,4 +319,5 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   }
 });
+
 client.login(process.env.TOKEN);
