@@ -120,5 +120,30 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   }
 });
+// Remplace ces valeurs par les bons IDs
+const ROLE_NON_VERIFIE_ID = "ID_ROLE_NON_VERIFIE";  // rôle donné à l'arrivée
+const ROLE_MEMBRE_ID = "ID_ROLE_MEMBRE";            // rôle à donner après validation
+const VALIDATION_MESSAGE_ID = "ID_MESSAGE_VALIDATION"; // message où il faut réagir avec ✅
 
+client.on("messageReactionAdd", async (reaction, user) => {
+  try {
+    if (reaction.partial) await reaction.fetch();
+    if (user.bot) return;
+
+    if (
+      reaction.message.id === VALIDATION_MESSAGE_ID &&
+      reaction.emoji.name === "✅"
+    ) {
+      const member = await reaction.message.guild.members.fetch(user.id);
+
+      // Supprime le rôle "non vérifié" et donne le rôle "membre"
+      await member.roles.remove(ROLE_NON_VERIFIE_ID);
+      await member.roles.add(ROLE_MEMBRE_ID);
+
+      console.log(`✅ ${user.tag} validé avec succès !`);
+    }
+  } catch (error) {
+    console.error("Erreur lors de la gestion de la réaction :", error);
+  }
+});
 client.login(process.env.TOKEN);
