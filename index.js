@@ -1,6 +1,3 @@
-// Gestion des erreurs non gérées
-process.on('unhandledRejection', e => console.error('Erreur non gérée :', e));
-
 const express = require("express");
 const {
   Client,
@@ -22,9 +19,9 @@ const PORT = process.env.PORT || 3000;
 app.get("/", (req, res) => res.send("Bot is alive"));
 app.listen(PORT, () => console.log(`✅ Serveur web lancé sur le port ${PORT}`));
 
-// Ping anti-sleep Render
+// Ping anti-sleep Render (remplace par ton lien réel)
 setInterval(() => {
-  require("http").get("https://TON-LIEN-RENDER.onrender.com"); // remplace par ton vrai lien
+  require("http").get("https://TON-LIEN-RENDER.onrender.com");
 }, 5 * 60 * 1000);
 
 // === CONFIGURATION ===
@@ -32,12 +29,19 @@ const CHANNEL_ID = "1378448023625007287"; // Réactions auto
 const SIGNAL_CHANNEL_ID = "1378660736150011956"; // Bouton signalement
 const REPORT_CHANNEL_ID = "1378661323054776400"; // Rapports
 
+// Rôles & message validation (remplace par tes IDs)
+const ROLE_NON_VERIFIE_ID = "ID_ROLE_NON_VERIFIE";
+const ROLE_MEMBRE_ID = "ID_ROLE_MEMBRE";
+const VALIDATION_MESSAGE_ID = "ID_MESSAGE_VALIDATION";
+
+const GAME_CHANNEL_ID = '1378737038261620806';
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMessageReactions
+    GatewayIntentBits.GuildMessageReactions,
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
@@ -45,6 +49,7 @@ const client = new Client({
 client.once("ready", async () => {
   console.log(`🤖 Connecté en tant que ${client.user.tag}`);
 
+  // Envoyer bouton signalement
   try {
     const channel = await client.channels.fetch(SIGNAL_CHANNEL_ID);
     if (channel) {
@@ -63,9 +68,29 @@ client.once("ready", async () => {
   } catch (err) {
     console.error("❌ Erreur en envoyant le bouton :", err);
   }
+
+  // Envoyer bouton pour démarrer le morpion
+  try {
+    const gameChannel = await client.channels.fetch(GAME_CHANNEL_ID);
+    if (gameChannel) {
+      const button = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('start_tictactoe')
+          .setLabel('▶️ Jouer au 3O ou 3X')
+          .setStyle(ButtonStyle.Primary)
+      );
+
+      await gameChannel.send({
+        content: 'Envie de jouer au 3O ou 3X ? Clique sur le bouton pour commencer une partie !',
+        components: [button],
+      });
+    }
+  } catch (err) {
+    console.error("❌ Erreur en envoyant le bouton de jeu :", err);
+  }
 });
 
-// ✅ Ajout des réactions automatiques
+// ✅ Ajout des réactions automatiques dans CHANNEL_ID
 client.on("messageCreate", async (message) => {
   if (message.channel.id === CHANNEL_ID && !message.author.bot) {
     try {
@@ -77,7 +102,7 @@ client.on("messageCreate", async (message) => {
   }
 });
 
-// 📋 Interaction pour formulaire
+// 📋 Interaction formulaire signalement
 client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.isButton() && interaction.customId === "open_report_modal") {
     const modal = new ModalBuilder()
@@ -94,6 +119,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     modal.addComponents(...inputs.map(input => new ActionRowBuilder().addComponents(input)));
 
     await interaction.showModal(modal);
+    return;
   }
 
   if (interaction.isModalSubmit() && interaction.customId === "report_form") {
@@ -118,96 +144,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     } catch (err) {
       console.error("❌ Erreur d'envoi du rapport :", err);
     }
+    return;
   }
-});
 
-// Remplace ces valeurs par les bons IDs
-const ROLE_NON_VERIFIE_ID = "ID_ROLE_NON_VERIFIE";  // rôle donné à l'arrivée
-const ROLE_MEMBRE_ID = "ID_ROLE_MEMBRE";            // rôle à donner après validation
-const VALIDATION_MESSAGE_ID = "ID_MESSAGE_VALIDATION"; // message où il faut réagir avec ✅
-
-client.on("messageReactionAdd", async (reaction, user) => {
-  try {
-    if (reaction.partial) await reaction.fetch();
-    if (user.bot) return;
-
-    if (
-      reaction.message.id === VALIDATION_MESSAGE_ID &&
-      reaction.emoji.name === "✅"
-    ) {
-      const member = await reaction.message.guild.members.fetch(user.id);
-
-      // Supprime le rôle "non vérifié" et donne le rôle "membre"
-      await member.roles.remove(ROLE_NON_VERIFIE_ID);
-      await member.roles.add(ROLE_MEMBRE_ID);
-
-      console.log(`✅ ${user.tag} validé avec succès !`);
-    }
-  } catch (error) {
-    console.error("Erreur lors de la gestion de la réaction :", error);
-  }
-});
-
-const GAME_CHANNEL_ID = '1378737038261620806';
-
-// Variable pour stocker l'état des parties actives par messageID
-const games = new Map();
-
-// Fonction pour générer les boutons du plateau en fonction du tableau de jeu
-function generateBoard(board) {
-  const rows = [];
-  for (let i = 0; i < 3; i++) {
-    const actionRow = new ActionRowBuilder();
-    for (let j = 0; j < 3; j++) {
-      const index = i * 3 + j;
-      const mark = board[index] || '⬜'; // Case vide
-      actionRow.addComponents(
-        new ButtonBuilder()
-          .setCustomId(`ttt_${index}`)
-          .setLabel(mark === '⬜' ? ' ' : mark)
-          .setStyle(mark === 'X' ? ButtonStyle.Danger : (mark === 'O' ? ButtonStyle.Primary : ButtonStyle.Secondary))
-          .setDisabled(mark !== '⬜') // Désactive les cases prises
-      );
-    }
-    rows.push(actionRow);
-  }
-  return rows;
-}
-
-// Fonction pour vérifier victoire ou nul
-function checkWin(board) {
-  const winPatterns = [
-    [0,1,2],[3,4,5],[6,7,8],
-    [0,3,6],[1,4,7],[2,5,8],
-    [0,4,8],[2,4,6]
-  ];
-  for (const pattern of winPatterns) {
-    const [a,b,c] = pattern;
-    if (board[a] && board[a] === board[b] && board[b] === board[c]) return board[a];
-  }
-  if (board.every(cell => cell)) return 'tie';
-  return null;
-}
-
-// Démarrage de jeu
-client.once('ready', async () => {
-  const gameChannel = await client.channels.fetch(GAME_CHANNEL_ID);
-  if (gameChannel) {
-    const button = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('start_tictactoe')
-        .setLabel('▶️ Jouer au 3O ou 3X')
-        .setStyle(ButtonStyle.Primary)
-    );
-
-    await gameChannel.send({
-      content: 'Envie de jouer au 3O ou 3X ? Clique sur le bouton pour commencer une partie !',
-      components: [button],
-    });
-  }
-});
-
-client.on(Events.InteractionCreate, async (interaction) => {
+  // === GESTION DU JEU MORPION ===
   if (interaction.isButton()) {
     if (interaction.customId === 'start_tictactoe') {
       if ([...games.values()].some(g => g.status === 'playing')) {
@@ -245,6 +185,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       const userId = interaction.user.id;
+
       if (game.status === 'waiting') {
         if (userId === game.playerX) {
           await interaction.reply({ content: "Tu ne peux pas jouer tout seul 😅", ephemeral: true });
@@ -319,5 +260,70 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   }
 });
+
+// === GESTION DES RÔLES (validation via réaction) ===
+client.on("messageReactionAdd", async (reaction, user) => {
+  try {
+    if (reaction.partial) await reaction.fetch();
+    if (user.bot) return;
+
+    if (
+      reaction.message.id === VALIDATION_MESSAGE_ID &&
+      reaction.emoji.name === "✅"
+    ) {
+      const member = await reaction.message.guild.members.fetch(user.id);
+
+      // Supprime le rôle "non vérifié" et donne le rôle "membre"
+      await member.roles.remove(ROLE_NON_VERIFIE_ID);
+      await member.roles.add(ROLE_MEMBRE_ID);
+
+      console.log(`✅ ${user.tag} validé avec succès !`);
+    }
+  } catch (error) {
+    console.error("Erreur lors de la gestion de la réaction :", error);
+  }
+});
+
+// === FONCTIONS UTILITAIRES POUR LE MORPION ===
+
+const games = new Map(); // stockage des parties
+
+function generateBoard(board) {
+  const rows = [];
+  for (let i = 0; i < 3; i++) {
+    const actionRow = new ActionRowBuilder();
+    for (let j = 0; j < 3; j++) {
+      const index = i * 3 + j;
+      const mark = board[index] || '⬜';
+      actionRow.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`ttt_${index}`)
+          .setLabel(mark === '⬜' ? ' ' : mark)
+          .setStyle(
+            mark === 'X' ? ButtonStyle.Danger :
+            mark === 'O' ? ButtonStyle.Primary :
+            ButtonStyle.Secondary
+          )
+          .setDisabled(mark !== '⬜')
+      );
+    }
+    rows.push(actionRow);
+  }
+  return rows;
+}
+
+function checkWin(board) {
+  const winPatterns = [
+    [0,1,2],[3,4,5],[6,7,8],
+    [0,3,6],[1,4,7],[2,5,8],
+    [0,4,8],[2,4,6]
+  ];
+  for (const pattern of winPatterns) {
+    const [a,b,c] = pattern;
+    if (board[a] && board[a] === board[b] && board[b] === board[c]) return board[a];
+  }
+  if (board.every(cell => cell)) return 'tie';
+  return null;
+}
 
 client.login(process.env.TOKEN);
