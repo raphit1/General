@@ -18,7 +18,7 @@ require("dotenv").config();
 const CHANNEL_ID = "1378448023625007287"; // Réactions
 const SIGNAL_CHANNEL_ID = "1378660736150011956";
 const REPORT_CHANNEL_ID = "1378661323054776400";
-const CASINO_CHANNEL_ID = "1378822062558416966"; // Nouveau salon dédié
+const CASINO_CHANNEL_ID = "1378822062558416966";
 
 const client = new Client({
   intents: [
@@ -60,6 +60,7 @@ function envoyerBoutonPendu(channel) {
 
 // === CASINO ===
 const userBalances = new Map();
+const lastResultMessages = new Map();
 let casinoMessageId = null;
 
 const rouletteOptions = [
@@ -104,6 +105,11 @@ client.once("ready", async () => {
     );
     await signalChannel.send({ content: "Signalez un comportement inapproprié :", components: [button] });
   }
+
+  const penduChannel = await client.channels.fetch(CHANNEL_ID);
+  if (penduChannel) {
+    await envoyerBoutonPendu(penduChannel);
+  }
 });
 
 // === COMMANDES ===
@@ -121,12 +127,7 @@ client.on("messageCreate", async (message) => {
 
   if (message.content === "!pendu") {
     const mot = mots[Math.floor(Math.random() * mots.length)];
-    parties.set(message.channel.id, {
-      mot,
-      lettresTrouvees: [],
-      lettresProposees: [],
-      erreurs: 0,
-    });
+    parties.set(message.channel.id, { mot, lettresTrouvees: [], lettresProposees: [], erreurs: 0 });
     return message.channel.send(
       `🎮 **NOUVELLE PARTIE DU PENDU**\nMot : \`${formatMot(mot, [])}\`\n${dessinerPendu(0)}\n_Proposez une lettre !_`
     );
@@ -170,6 +171,9 @@ client.on("messageCreate", async (message) => {
     if (message.channel.id !== CASINO_CHANNEL_ID) {
       return message.reply("⛔ Utilise cette commande dans le salon dédié au casino.");
     }
+    const balance = userBalances.get(message.author.id) ?? 10000;
+    userBalances.set(message.author.id, balance);
+    await message.channel.send(`🎰 **Solde actuel pour <@${message.author.id}> :** $${balance}`);
     return envoyerMessageCasino(message.channel);
   }
 });
@@ -178,16 +182,27 @@ client.on("messageCreate", async (message) => {
 client.on(Events.InteractionCreate, async (interaction) => {
   const userId = interaction.user.id;
 
+  if (interaction.isButton() && interaction.customId === "open_report_modal") {
+    const modal = new ModalBuilder().setCustomId("report_form").setTitle("🚨 Fiche de signalement");
+    const inputs = [
+      new TextInputBuilder().setCustomId("accuse").setLabel("Nom de l’accusé (@...)").setStyle(TextInputStyle.Short).setRequired(true),
+      new TextInputBuilder().setCustomId("crimes").setLabel("Crimes reprochés").setStyle(TextInputStyle.Short).setRequired(true),
+      new TextInputBuilder().setCustomId("contexte").setLabel("Contexte du drame").setStyle(TextInputStyle.Paragraph).setRequired(true),
+      new TextInputBuilder().setCustomId("preuves").setLabel("Preuves (liens, screens...)\n(optionnel)").setStyle(TextInputStyle.Paragraph).setRequired(false),
+    ];
+    modal.addComponents(...inputs.map(input => new ActionRowBuilder().addComponents(input)));
+    return interaction.showModal(modal);
+  }
+
   if (interaction.isButton()) {
     const id = interaction.customId;
+
     if (id === "start_pendu") {
       await interaction.deferUpdate();
       try { await interaction.message.delete(); } catch {}
       const mot = mots[Math.floor(Math.random() * mots.length)];
       parties.set(interaction.channel.id, { mot, lettresTrouvees: [], lettresProposees: [], erreurs: 0 });
-      return interaction.channel.send(
-        `🎮 **NOUVELLE PARTIE DU PENDU**\nMot : \`${formatMot(mot, [])}\`\n${dessinerPendu(0)}\n_Proposez une lettre !_`
-      );
+      return interaction.channel.send(`🎮 **NOUVELLE PARTIE DU PENDU**\nMot : \`${formatMot(mot, [])}\`\n${dessinerPendu(0)}\n_Proposez une lettre !_`);
     }
 
     if (!interaction.channel || interaction.channel.id !== CASINO_CHANNEL_ID) {
@@ -199,32 +214,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return interaction.reply({ content: "🔁 Votre solde a été réinitialisé à $10000.", ephemeral: true });
     }
 
-    const modal = new ModalBuilder()
-      .setCustomId(`modal_${id}`)
-      .setTitle("🎰 Mise en jeu");
-
+    const modal = new ModalBuilder().setCustomId(`modal_${id}`).setTitle("🎰 Mise en jeu");
     modal.addComponents(
       new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("amount")
-          .setLabel("💸 Somme à miser")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true)
+        new TextInputBuilder().setCustomId("amount").setLabel("💸 Somme à miser").setStyle(TextInputStyle.Short).setRequired(true)
       )
     );
-
     if (id === "bet_number") {
       modal.addComponents(
         new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId("number")
-            .setLabel("🎯 Numéro choisi (0-36)")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
+          new TextInputBuilder().setCustomId("number").setLabel("🎯 Numéro choisi (0-36)").setStyle(TextInputStyle.Short).setRequired(true)
         )
       );
     }
-
     return interaction.showModal(modal);
   }
 
@@ -253,27 +255,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const newBalance = balance - amount + result.gain;
     userBalances.set(userId, newBalance);
 
-    if (casinoMessageId) {
-      const casinoMsg = await interaction.channel.messages.fetch(casinoMessageId).catch(() => null);
-      if (casinoMsg) await casinoMsg.edit({ content: "🎰 Casino - mise à jour disponible", components: [getRouletteButtons()] });
+    const prev = lastResultMessages.get(userId);
+    if (prev) {
+      try {
+        const msg = await interaction.channel.messages.fetch(prev);
+        await msg.delete();
+      } catch {}
     }
 
-    return interaction.reply({
+    const reply = await interaction.reply({
       content: `🎲 Résultat : numéro **${result.number}** (${result.color})\n💰 Gain : **$${result.gain}**\n💼 Nouveau solde : **$${newBalance}**`,
-      ephemeral: true,
+      ephemeral: false
     });
-  }
-
-  if (interaction.isButton() && interaction.customId === "open_report_modal") {
-    const modal = new ModalBuilder().setCustomId("report_form").setTitle("🚨 Fiche de signalement");
-    const inputs = [
-      new TextInputBuilder().setCustomId("accuse").setLabel("Nom de l’accusé (@...)").setStyle(TextInputStyle.Short).setRequired(true),
-      new TextInputBuilder().setCustomId("crimes").setLabel("Crimes reprochés").setStyle(TextInputStyle.Short).setRequired(true),
-      new TextInputBuilder().setCustomId("contexte").setLabel("Contexte du drame").setStyle(TextInputStyle.Paragraph).setRequired(true),
-      new TextInputBuilder().setCustomId("preuves").setLabel("Preuves (liens, screens...)\n(optionnel)").setStyle(TextInputStyle.Paragraph).setRequired(false),
-    ];
-    modal.addComponents(...inputs.map(input => new ActionRowBuilder().addComponents(input)));
-    return interaction.showModal(modal);
+    lastResultMessages.set(userId, reply.id);
   }
 
   if (interaction.isModalSubmit() && interaction.customId === "report_form") {
