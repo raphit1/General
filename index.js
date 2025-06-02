@@ -13,6 +13,7 @@ const SIGNAL_CHANNEL_ID = "1378660736150011956";
 const REPORT_CHANNEL_ID = "1378661323054776400";
 const PENDU_CHANNEL_ID = "1378737038261620806";
 const CASINO_CHANNEL_ID = "1378822062558416966";
+const LEADERBOARD_CHANNEL_ID = "TON_ID_SALON_CLASSEMENT"; // <-- Remplace par l'ID de ton salon classement
 
 const client = new Client({
   intents: [
@@ -47,6 +48,7 @@ function dessinerPendu(erreurs) {
 // === CASINO ===
 const userBalances = new Map();
 const userResultMessages = new Map(); // Pour suppression du résultat précédent
+let leaderboardMessageId = null; // Pour garder l'ID du message classement
 
 function getRouletteButtons() {
   return new ActionRowBuilder().addComponents(
@@ -68,6 +70,45 @@ function lancerRoulette(choice, amount, numberChosen = null) {
   else if (choice === "black" && color === "black") gain = amount * 2;
   else if (choice === "number" && number === numberChosen) gain = amount * 36;
   return { number, color, gain };
+}
+
+// === CLASSEMENT ===
+function generateLeaderboardEmbed() {
+  const sorted = [...userBalances.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+
+  const fields = sorted.map(([id, solde], i) => ({
+    name: `#${i + 1}`,
+    value: `<@${id}> : $${solde}`,
+    inline: false,
+  }));
+
+  return new EmbedBuilder()
+    .setTitle("🏆 Classement du Casino")
+    .addFields(fields)
+    .setColor(0xFFD700);
+}
+
+async function updateLeaderboard(client) {
+  const channel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID);
+  if (!channel) return;
+
+  if (leaderboardMessageId) {
+    try {
+      const msg = await channel.messages.fetch(leaderboardMessageId);
+      const embed = generateLeaderboardEmbed();
+      await msg.edit({ embeds: [embed] });
+      return;
+    } catch {
+      leaderboardMessageId = null;
+    }
+  }
+
+  // Pas de message existant, on en crée un nouveau
+  const embed = generateLeaderboardEmbed();
+  const msg = await channel.send({ embeds: [embed] });
+  leaderboardMessageId = msg.id;
 }
 
 // === READY ===
@@ -109,6 +150,9 @@ client.once("ready", async () => {
       components: [new ActionRowBuilder().addComponents(button)]
     });
   }
+
+  // Initialise classement dès le démarrage
+  await updateLeaderboard(client);
 });
 
 // === INTERACTIONS ===
@@ -144,6 +188,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (customId === "reset_money") {
       userBalances.set(user.id, 10000);
+      await updateLeaderboard(client);
       return interaction.reply({ content: "💰 Votre solde a été réinitialisé à $10000.", ephemeral: true });
     }
 
@@ -185,6 +230,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     const newSolde = current - amount + result.gain;
     userBalances.set(userId, newSolde);
+
+    // Met à jour le classement
+    await updateLeaderboard(client);
 
     // Supprimer ancien résultat
     const prevMsg = userResultMessages.get(userId);
@@ -268,4 +316,5 @@ client.on("messageCreate", async (message) => {
   }
 });
 
+// === LOGIN ===
 client.login(process.env.TOKEN);
