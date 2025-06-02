@@ -8,12 +8,12 @@ const {
 require("dotenv").config();
 
 // === CONFIGURATION ===
-const CHANNEL_ID = "1378448023625007287"; // Réactions
+const CHANNEL_ID = "1378448023625007287";
 const SIGNAL_CHANNEL_ID = "1378660736150011956";
 const REPORT_CHANNEL_ID = "1378661323054776400";
 const PENDU_CHANNEL_ID = "1378737038261620806";
 const CASINO_CHANNEL_ID = "1378822062558416966";
-const LEADERBOARD_CHANNEL_ID = "1378893114592198761"; // ✔️ Corrigé ici
+const LEADERBOARD_CHANNEL_ID = "1378893114592198761";
 
 const client = new Client({
   intents: [
@@ -47,6 +47,7 @@ function dessinerPendu(erreurs) {
 
 // === CASINO ===
 const userBalances = new Map();
+const userHighestBalances = new Map();
 const userResultMessages = new Map();
 let leaderboardMessageId = null;
 
@@ -89,23 +90,41 @@ function generateLeaderboardEmbed() {
     .setColor(0xFFD700);
 }
 
+function generateEverLeaderboardEmbed() {
+  const sorted = [...userHighestBalances.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+
+  const fields = sorted.map(([id, maxSolde], i) => ({
+    name: `#${i + 1}`,
+    value: `<@${id}> : $${maxSolde}`,
+    inline: false,
+  }));
+
+  return new EmbedBuilder()
+    .setTitle("🏅 Classement Ever (record historiques)")
+    .addFields(fields)
+    .setColor(0x00BFFF);
+}
+
 async function updateLeaderboard(client) {
   const channel = await client.channels.fetch(LEADERBOARD_CHANNEL_ID);
   if (!channel) return;
 
+  const embedCurrent = generateLeaderboardEmbed();
+  const embedEver = generateEverLeaderboardEmbed();
+
   if (leaderboardMessageId) {
     try {
       const msg = await channel.messages.fetch(leaderboardMessageId);
-      const embed = generateLeaderboardEmbed();
-      await msg.edit({ embeds: [embed] });
+      await msg.edit({ embeds: [embedCurrent, embedEver] });
       return;
     } catch {
       leaderboardMessageId = null;
     }
   }
 
-  const embed = generateLeaderboardEmbed();
-  const msg = await channel.send({ embeds: [embed] });
+  const msg = await channel.send({ embeds: [embedCurrent, embedEver] });
   leaderboardMessageId = msg.id;
 }
 
@@ -180,6 +199,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (customId === "reset_money") {
       userBalances.set(user.id, 10000);
+      userHighestBalances.set(user.id, Math.max(10000, userHighestBalances.get(user.id) ?? 0));
       await updateLeaderboard(client);
       return interaction.reply({ content: "💰 Votre solde a été réinitialisé à $10000.", ephemeral: true });
     }
@@ -221,6 +241,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     const newSolde = current - amount + result.gain;
     userBalances.set(userId, newSolde);
+
+    const maxSolde = userHighestBalances.get(userId) ?? 0;
+    if (newSolde > maxSolde) {
+      userHighestBalances.set(userId, newSolde);
+    }
+
     await updateLeaderboard(client);
 
     const prevMsg = userResultMessages.get(userId);
@@ -257,7 +283,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-// === COMMANDES (messageCreate) ===
+// === COMMANDES ===
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
