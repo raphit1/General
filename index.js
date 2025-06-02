@@ -13,7 +13,7 @@ const SIGNAL_CHANNEL_ID = "1378660736150011956";
 const REPORT_CHANNEL_ID = "1378661323054776400";
 const PENDU_CHANNEL_ID = "1378737038261620806";
 const CASINO_CHANNEL_ID = "1378822062558416966";
-const LEADERBOARD_CHANNEL_ID = "TON_ID_SALON_CLASSEMENT"; // <-- Remplace par l'ID de ton salon classement
+const LEADERBOARD_CHANNEL_ID = "1378893114592198761"; // ✔️ Corrigé ici
 
 const client = new Client({
   intents: [
@@ -47,8 +47,8 @@ function dessinerPendu(erreurs) {
 
 // === CASINO ===
 const userBalances = new Map();
-const userResultMessages = new Map(); // Pour suppression du résultat précédent
-let leaderboardMessageId = null; // Pour garder l'ID du message classement
+const userResultMessages = new Map();
+let leaderboardMessageId = null;
 
 function getRouletteButtons() {
   return new ActionRowBuilder().addComponents(
@@ -72,7 +72,6 @@ function lancerRoulette(choice, amount, numberChosen = null) {
   return { number, color, gain };
 }
 
-// === CLASSEMENT ===
 function generateLeaderboardEmbed() {
   const sorted = [...userBalances.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -105,7 +104,6 @@ async function updateLeaderboard(client) {
     }
   }
 
-  // Pas de message existant, on en crée un nouveau
   const embed = generateLeaderboardEmbed();
   const msg = await channel.send({ embeds: [embed] });
   leaderboardMessageId = msg.id;
@@ -115,13 +113,11 @@ async function updateLeaderboard(client) {
 client.once("ready", async () => {
   console.log(`🤖 Connecté : ${client.user.tag}`);
 
-  // PENDU INIT
   const penduChannel = await client.channels.fetch(PENDU_CHANNEL_ID);
   if (penduChannel) {
     penduChannel.send("🪢 Tapez `!pendu` pour démarrer une partie !");
   }
 
-  // CASINO INIT
   const casinoChannel = await client.channels.fetch(CASINO_CHANNEL_ID);
   if (casinoChannel) {
     const components = [getRouletteButtons()];
@@ -137,7 +133,6 @@ client.once("ready", async () => {
     });
   }
 
-  // SIGNALEMENT INIT
   const signalChannel = await client.channels.fetch(SIGNAL_CHANNEL_ID);
   if (signalChannel) {
     const button = new ButtonBuilder()
@@ -151,7 +146,6 @@ client.once("ready", async () => {
     });
   }
 
-  // Initialise classement dès le démarrage
   await updateLeaderboard(client);
 });
 
@@ -161,7 +155,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
   const isCasinoButton = ["bet_red", "bet_black", "bet_number", "reset_money"].includes(customId);
 
   if (interaction.isButton()) {
-    // SIGNALER
     if (customId === "open_report_modal") {
       const modal = new ModalBuilder().setCustomId("report_form").setTitle("🚨 Fiche de signalement");
       modal.addComponents(
@@ -181,7 +174,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return interaction.showModal(modal);
     }
 
-    // CASINO UNIQUEMENT
     if (isCasinoButton && channel.id !== CASINO_CHANNEL_ID) {
       return interaction.reply({ content: "⛔ Ce bouton ne peut être utilisé que dans le salon casino.", ephemeral: true });
     }
@@ -192,7 +184,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return interaction.reply({ content: "💰 Votre solde a été réinitialisé à $10000.", ephemeral: true });
     }
 
-    // MISE MODALE
     const modal = new ModalBuilder().setCustomId(`modal_${customId}`).setTitle("🎰 Mise en jeu");
     modal.addComponents(
       new ActionRowBuilder().addComponents(
@@ -230,11 +221,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     const newSolde = current - amount + result.gain;
     userBalances.set(userId, newSolde);
-
-    // Met à jour le classement
     await updateLeaderboard(client);
 
-    // Supprimer ancien résultat
     const prevMsg = userResultMessages.get(userId);
     if (prevMsg) {
       try { await prevMsg.delete(); } catch {}
